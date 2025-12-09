@@ -1,0 +1,275 @@
+Below is your complete Markdown / README-style training guide for Kubernetes Pending Pod Troubleshooting.
+You can copy/paste this directly into a README.md file and use it for team training or workshops.
+
+🧪 Kubernetes Troubleshooting Lab
+Understanding & Fixing Pods Stuck in Pending State
+This lab provides hands-on, practical scenarios covering every major reason a Kubernetes Pod may be stuck in the Pending phase.
+Each scenario includes:
+	• What the issue is
+	• How to reproduce it
+	• How to troubleshoot it
+	• How to fix it
+Works on:
+	• Minikube
+	• KIND
+	• OpenShift Local
+	• OpenShift Sandbox
+	• Any Kubernetes cluster
+
+🧩 Prerequisites
+Ensure you can run:
+kubectl get nodes
+kubectl apply -f file.yaml
+kubectl describe pod <pod>
+kubectl describe node <node>
+
+📘 Table of Contents
+	1. Insufficient CPU
+	2. Insufficient Memory
+	3. Node Taints
+	4. Unbound PVC
+	5. Node Selector Mismatch
+	6. Anti-Affinity Rules
+	7. SCC / PSP Security Restrictions
+	8. ResourceQuota Violations
+	9. GPU Requests Not Allowed
+	10. Ephemeral Storage Violations
+	11. Common Troubleshooting Commands
+
+1️⃣ Insufficient CPU
+❌ Problem
+Pod requests more CPU than available in the cluster.
+YAML:
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cpu-hog
+spec:
+  containers:
+  - name: app
+    image: nginx
+    resources:
+      requests:
+        cpu: "10"
+Troubleshoot:
+kubectl describe pod cpu-hog
+Expected event:
+0/3 nodes are available: insufficient cpu
+Fix:
+Lower CPU request.
+
+2️⃣ Insufficient Memory
+YAML:
+apiVersion: v1
+kind: Pod
+metadata:
+  name: memory-hog
+spec:
+  containers:
+  - name: app
+    image: nginx
+    resources:
+      requests:
+        memory: "80Gi"
+Troubleshoot:
+kubectl describe pod memory-hog
+Expected:
+insufficient memory
+Fix:
+Request less memory.
+
+3️⃣ Node Taints
+Add taint:
+kubectl taint nodes <node> dedicated=backend:NoSchedule
+Pod that fails:
+apiVersion: v1
+kind: Pod
+metadata:
+  name: no-toleration
+spec:
+  containers:
+  - name: app
+    image: nginx
+Troubleshoot:
+kubectl describe pod no-toleration
+Expected:
+node(s) had taint {dedicated=backend:NoSchedule}, that the pod didn't tolerate
+Fix:
+Add toleration:
+tolerations:
+- key: "dedicated"
+  operator: "Equal"
+  value: "backend"
+  effect: "NoSchedule"
+
+4️⃣ Unbound PVC
+Unbindable PVC:
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bad-pvc
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: does-not-exist
+Pod that fails:
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pvc-pod
+spec:
+  containers:
+  - name: busy
+    image: busybox
+    command: ["sleep", "3600"]
+    volumeMounts:
+    - name: data
+      mountPath: /data
+  volumes:
+  - name: data
+    persistentVolumeClaim:
+      claimName: bad-pvc
+Troubleshoot:
+persistentvolumeclaim "bad-pvc" is not bound
+Fix:
+Use correct StorageClass or create matching PV.
+
+5️⃣ Node Selector Mismatch
+Failing Pod:
+apiVersion: v1
+kind: Pod
+metadata:
+  name: node-selector-fail
+spec:
+  nodeSelector:
+    disktype: ssd
+  containers:
+  - name: app
+    image: nginx
+Describe:
+0 nodes match pod's node selector
+Fix:
+Label a node:
+kubectl label node <node> disktype=ssd
+
+6️⃣ Anti-Affinity Rules
+Pod with impossible anti-affinity:
+apiVersion: v1
+kind: Pod
+metadata:
+  name: anti-affinity-fail
+  labels:
+    app: test
+spec:
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app: test
+        topologyKey: "kubernetes.io/hostname"
+  containers:
+  - name: app
+    image: nginx
+Describe:
+pod anti-affinity rules not satisfied
+Fix:
+Use preferred anti-affinity or reduce strictness.
+
+7️⃣ SecurityContextConstraints / PSP Failure (OpenShift)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: privileged-denied
+spec:
+  containers:
+  - name: app
+    image: nginx
+    securityContext:
+      privileged: true
+Describe:
+pod is not allowed to use SecurityContextConstraints "privileged"
+Fix:
+oc adm policy add-scc-to-user privileged -z default
+
+8️⃣ ResourceQuota Violations
+Example: Memory request over quota.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: quota-memory-fail
+spec:
+  containers:
+  - name: app
+    image: nginx
+    resources:
+      requests:
+        memory: "40Gi"
+Describe:
+exceeded quota: compute-deploy, requested: requests.memory=40Gi
+Fix:
+Reduce memory request.
+
+9️⃣ GPU Requests Not Allowed
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gpu-fail
+spec:
+  containers:
+  - name: cuda
+    image: nvidia/cuda
+    resources:
+      requests:
+        nvidia.com/gpu: 1
+Error:
+exceeded quota: requests.nvidia.com/gpu=1, limited: 0
+Fix:
+Remove GPU request.
+
+🔟 Ephemeral Storage Violations
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ephemeral-fail
+spec:
+  containers:
+  - name: app
+    image: nginx
+    resources:
+      requests:
+        ephemeral-storage: "20Gi"   # Limit is usually smaller
+Describe:
+exceeded quota: requests.ephemeral-storage
+
+1️⃣1️⃣ Common Troubleshooting Commands
+Check events:
+kubectl describe pod <pod>
+Check node conditions:
+kubectl describe node <node>
+Check taints:
+kubectl describe node <node> | grep -i taint
+Check resource usage:
+kubectl top pods
+kubectl top nodes
+Check PVC:
+kubectl get pvc
+kubectl describe pvc <pvc>
+
+🎓 Conclusion
+This lab provides hands-on examples and troubleshooting practice for all major causes of Pods stuck in Pending:
+	• Resource shortages
+	• Taints
+	• PVC issues
+	• Node selector mismatch
+	• Affinity constraints
+	• Security restrictions
+	• ResourceQuota enforcement
+	• GPU & ephemeral storage limits
+
+✅ Want a downloadable ZIP containing all YAML files?
+I can generate it for you — just say “yes, create ZIP”.
+
+From <https://chatgpt.com/c/69366719-93bc-832c-98e5-d37768d8d26d> 
